@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本地文档问答助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        bgmain: '#f8fafc',
+                        card: '#f1f5f9',
+                        textlight: '#475569'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .scrollbar-thin {
+                scrollbar-width: thin;
+            }
+            .scrollbar-thin::-webkit-scrollbar {
+                width: 6px;
+            }
+            .scrollbar-thin::-webkit-scrollbar-thumb {
+                background-color: #cbd5e1;
+                border-radius: 3px;
+            }
+            .drop-active{
+                @apply border-primary bg-blue-50;
+            }
+        }
+    </style>
+</head>
+<body class="bg-bgmain text-slate-800 h-screen flex flex-col overflow-hidden">
+    <!-- 顶部标题栏 -->
+    <header class="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
+        <i class="fa fa-file-text-o text-primary text-xl"></i>
+        <h1 class="text-xl font-semibold">文档问答助手 | 本地RAG</h1>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- 左侧文档上传面板 -->
+        <aside class="w-72 border-r border-slate-200 p-4 flex flex-col">
+            <h2 class="font-medium mb-3 flex items-center gap-2"><i class="fa fa-upload"></i>文档上传</h2>
+            <div id="dropArea" class="border-2 border-dashed border-slate-300 rounded-lg p-5 text-center transition-all cursor-pointer mb-4">
+                <i class="fa fa-cloud-upload text-3xl text-slate-400 mb-2"></i>
+                <p class="text-sm text-textlight">拖拽文件到这里<br/>或点击选择</p>
+                <input type="file" id="fileInput" class="hidden" accept=".txt,.md,.pdf">
+            </div>
+            <div id="fileInfo" class="text-sm text-textlight mb-4"></div>
+            <button id="uploadBtn" class="bg-primary hover:bg-blue-600 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg py-2 px-4 transition text-white">
+                加载文档
+            </button>
+            <div class="mt-4 text-xs text-slate-500">支持：txt / md / pdf</div>
+            <div class="mt-auto pt-4 text-xs text-slate-500">文档加载后，即可提问文档内容</div>
+        </aside>
+
+        <!-- 右侧对话区域 -->
+        <main class="flex-1 flex flex-col">
+            <div id="chatBox" class="flex-1 p-6 overflow-y-auto scrollbar-thin space-y-4">
+                <div class="bg-card rounded-xl p-4 max-w-[80%]">
+                    <p class="text-textlight">你好！上传文档后，可以向我提问文档里的内容。</p>
+                </div>
+            </div>
+            <!-- 输入框区域 -->
+            <div class="p-4 border-t border-slate-200">
+                <div class="flex gap-3">
+                    <textarea id="questionInput" rows="1" placeholder="请输入你的问题..."
+                        class="flex-1 bg-white rounded-lg p-3 outline-none border border-slate-300 focus:border-primary resize-none text-slate-800"></textarea>
+                    <button id="sendBtn" class="bg-primary hover:bg-blue-600 rounded-lg px-5 transition text-white">
+                        <i class="fa fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+    const dropArea = document.getElementById('dropArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const chatBox = document.getElementById('chatBox');
+    const questionInput = document.getElementById('questionInput');
+    const sendBtn = document.getElementById('sendBtn');
+    let selectedFile = null;
+
+    // 拖拽上传
+    dropArea.onclick = ()=>fileInput.click();
+    dropArea.ondragover = e=>{e.preventDefault(); dropArea.classList.add('drop-active')};
+    dropArea.ondragleave = ()=>dropArea.classList.remove('drop-active');
+    dropArea.ondrop = e=>{
+        e.preventDefault();
+        dropArea.classList.remove('drop-active');
+        if(e.dataTransfer.files.length){
+            selectedFile = e.dataTransfer.files[0];
+            fileInfo.innerText = `已选择：${selectedFile.name}`;
+        }
+    };
+    fileInput.onchange = ()=>{
+        if(fileInput.files[0]){
+            selectedFile = fileInput.files[0];
+            fileInfo.innerText = `已选择：${selectedFile.name}`;
+        }
+    }
+
+    // 上传文档接口
+    uploadBtn.onclick = async ()=>{
+        if(!selectedFile) return alert("请先选择文档");
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        uploadBtn.disabled = true;
+        uploadBtn.innerText = "加载中...";
+        try{
+            const res = await fetch("http://127.0.0.1:8000/upload", {method:"POST", body:formData});
+            const data = await res.json();
+            if(res.ok){
+                addBotMsg("✅文档加载成功（RAG分块完成），现在你可以提问文档内容！");
+            }else{
+                addBotMsg("❌加载失败："+(data.detail || data.msg || res.status));
+            }
+        }catch(err){
+            addBotMsg("❌网络错误，后端服务未启动");
+        }
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = "加载文档";
+    }
+
+    // 发送提问
+    sendBtn.onclick = sendQuestion;
+    questionInput.onkeydown = (e)=>{
+        if(e.key === 'Enter' && !e.shiftKey){
+            e.preventDefault();
+            sendQuestion();
+        }
+    }
+
+    async function sendQuestion(){
+        const q = questionInput.value.trim();
+        if(!q) return;
+        addUserMsg(q);
+        questionInput.value = "";
+        const botDom = addBotMsg("");
+        try{
+            const resp = await fetch("http://127.0.0.1:8000/chat", {
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body: JSON.stringify({question: q})
+            });
+            const data = await resp.json();
+            botDom.querySelector("p").innerText = data.answer || "（无回答）";
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }catch(err){
+            botDom.querySelector("p").innerText = "请求出错，请确认后端已运行且文档已加载";
+        }
+    }
+
+    function addUserMsg(text){
+        const div = document.createElement('div');
+        div.className = "flex justify-end";
+        div.innerHTML = `<div class="bg-primary/80 rounded-xl p-4 max-w-[80%] text-white"><p>${escapeHtml(text)}</p></div>`;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+    function addBotMsg(text){
+        const div = document.createElement('div');
+        div.className = "flex justify-start";
+        div.innerHTML = `<div class="bg-card rounded-xl p-4 max-w-[80%]"><p class="whitespace-pre-wrap">${escapeHtml(text)}</p></div>`;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return div;
+    }
+    function escapeHtml(str) {
+        return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+</script>
+</body>
+</html>

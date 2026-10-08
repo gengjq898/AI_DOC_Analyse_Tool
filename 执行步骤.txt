@@ -1,0 +1,10 @@
+1. 安装依赖（cmd 进入 ai-demo 文件夹执行）
+pip install fastapi uvicorn requests python-multipart python-docx python-dotenv
+pip install faiss-cpu sentence-transformers
+
+2. 修改 `.env`，填入你的硅基流动 API 密钥
+3. 启动后端服务：  （需要连外网，稍等启动完成）
+uvicorn main:app --reload
+
+4. 双击 `index.html` 用浏览器打开页面
+5. 上传 txt/docx 文档，输入问题，发送提问
